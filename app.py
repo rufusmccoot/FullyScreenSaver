@@ -88,7 +88,7 @@ TEMPLATE = '''
                 } while (distance < 10); // avoid picking the same spot
                 const speed = 10; // px per second
                 duration = distance / speed;
-                clock.style.transition = `left ${duration}s cubic-bezier(0.4,0,0.2,1), top ${duration}s cubic-bezier(0.4,0,0.2,1)`;
+                clock.style.transition = `left ${duration}s cubic-bezier(0.4,0,0.2,1), top ${duration}s cubic-bezier(0.4,0,0.2,1), color 60s linear`;
                 clock.style.left = `${newLeft}px`;
                 clock.style.top = `${newTop}px`;
                 // Always schedule next move after duration (minimum 1s)
@@ -132,7 +132,7 @@ TEMPLATE = '''
             // HSL: h=0-360, s=90-100, l=23-60
             const h = Math.floor(Math.random() * 361); // 0-360
             const s = 90 + Math.random() * 10;         // 90-100
-            const l = 23 + Math.random() * 37;         // 23-60
+            const l = 40 + Math.random() * 35;         // 40-75
             return `hsl(${h}, ${s}%, ${l}%)`;
         }
         function startColorTransition() {
@@ -140,7 +140,7 @@ TEMPLATE = '''
             let currentColor = window.getComputedStyle(clock).color;
             function nextColor() {
                 const newColor = randomColor();
-                clock.style.transition = (clock.style.transition ? clock.style.transition + ', ' : '') + 'color 60s linear';
+
                 clock.style.color = newColor;
                 setTimeout(() => {
                     // After transition, set up for next
