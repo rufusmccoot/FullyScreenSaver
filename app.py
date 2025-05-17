@@ -451,15 +451,14 @@ def weather_ui():
         const ha_url = "{{ ha_url }}";
         function iconUrl(icon) {
             if (!icon) return '';
-            return `${ha_url}/hacsfiles/weather-chart-card/icons2/${icon}.svg`;
+            return `/static/images/weather/${icon}.svg`;
         }
-        function moonToEmoji(phase) {
-            if (!phase) return '';
-            const map = {
-                'New Moon': '🌑', 'Waxing Crescent': '🌒', 'First Quarter': '🌓', 'Waxing Gibbous': '🌔',
-                'Full Moon': '🌕', 'Waning Gibbous': '🌖', 'Last Quarter': '🌗', 'Waning Crescent': '🌘'
-            };
-            return map[phase] || '🌙';
+        function moonPhaseImgUrl(phase) {
+            // phase: 0.00 - 1.00 (inclusive)
+            let idx = Math.round(phase * 29 + 1);
+            if (idx < 1) idx = 1;
+            if (idx > 30) idx = 30;
+            return `/static/images/moonphase/${idx.toString().padStart(2, '0')}.webp`;
         }
         function updateWeatherUI() {
             fetch('/weather').then(r => r.json()).then(data => {
@@ -467,7 +466,13 @@ def weather_ui():
                 document.getElementById('current-temp').textContent = c.temp !== null ? c.temp + '°' : '--';
                 document.getElementById('current-icon').innerHTML = c.icon ? `<img src="${iconUrl(c.icon)}" alt="${c.icon}" style="height:2.5em;">` : '';
                 document.getElementById('current-cond').textContent = c.condition || '--';
-                document.getElementById('current-moon').textContent = moonToEmoji(c.moon_phase);
+                // Show moon image if moon_phase is a number, else fallback to emoji
+                let moonPhaseVal = parseFloat(c.moon_phase);
+                if (!isNaN(moonPhaseVal)) {
+                    document.getElementById('current-moon').innerHTML = `<img src="${moonPhaseImgUrl(moonPhaseVal)}" alt="moon phase" style="height:2em;">`;
+                } else {
+                    document.getElementById('current-moon').textContent = c.moon_phase || '';
+                }
                 document.getElementById('current-moon-label').textContent = c.moon_phase || '';
                 document.getElementById('current-summary').textContent = c.daily_summary || '';
 
