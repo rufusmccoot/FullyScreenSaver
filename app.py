@@ -259,9 +259,9 @@ def fetch_weather_data():
         def c_to_f(match):
             c = float(match.group(1))
             f = round(c * 9 / 5 + 32)
-            return f"{f}F"
-        # Replace all XXC with XXF
-        summary = re.sub(r"(\-?\d+(?:\.\d+)?)C", c_to_f, summary)
+            return f"{f}°F"
+        # Replace all XXC or XX°C with XXF
+        summary = re.sub(r"(\-?\d+(?:\.\d+)?)[°]?C", c_to_f, summary)
         daily_summary = summary
 
     # Grab next 5 hours of precip intensity from sensors
@@ -421,6 +421,117 @@ def weather_cache_updater():
 refresh_weather_cache()
 threading.Thread(target=weather_cache_updater, daemon=True).start()
 
+@app.route('/weather_ui')
+def weather_ui():
+    return render_template_string('''
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weather Dashboard</title>
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #181c23; color: #fff; margin: 0; padding: 0; }
+        .container { max-width: 900px; margin: 30px auto; background: #232733; border-radius: 12px; box-shadow: 0 2px 16px #000a; padding: 32px; }
+        h1 { margin-top: 0; font-size: 2.3em; letter-spacing: 0.04em; }
+        .current { display: flex; align-items: center; gap: 32px; margin-bottom: 32px; }
+        .current-icon { font-size: 4em; }
+        .current-details { font-size: 1.3em; }
+        .section-title { margin: 20px 0 8px 0; font-size: 1.2em; color: #aee; letter-spacing: 0.04em; }
+        .hourly, .daily { display: flex; gap: 18px; }
+        .hour, .day { background: #23293a; border-radius: 8px; padding: 12px 10px; min-width: 90px; text-align: center; box-shadow: 0 1px 4px #0005; }
+        .hour .icon, .day .icon { font-size: 2em; }
+        .label { font-size: 0.9em; color: #a9b; margin-top: 2px; }
+        .value { font-size: 1.1em; margin: 2px 0; }
+        .moon { font-size: 1.6em; margin-left: 10px; }
+        .summary { margin-top: 10px; color: #eee; font-size: 1.1em; }
+        @media (max-width: 900px) { .container { padding: 10px; } .hourly, .daily { flex-wrap: wrap; } }
+    </style>
+    <script>
+        const ha_url = "{{ ha_url }}";
+        function iconUrl(icon) {
+            if (!icon) return '';
+            return `${ha_url}/hacsfiles/weather-chart-card/icons2/${icon}.svg`;
+        }
+        function moonToEmoji(phase) {
+            if (!phase) return '';
+            const map = {
+                'New Moon': '🌑', 'Waxing Crescent': '🌒', 'First Quarter': '🌓', 'Waxing Gibbous': '🌔',
+                'Full Moon': '🌕', 'Waning Gibbous': '🌖', 'Last Quarter': '🌗', 'Waning Crescent': '🌘'
+            };
+            return map[phase] || '🌙';
+        }
+        function updateWeatherUI() {
+            fetch('/weather').then(r => r.json()).then(data => {
+                const c = data.current;
+                document.getElementById('current-temp').textContent = c.temp !== null ? c.temp + '°' : '--';
+                document.getElementById('current-icon').innerHTML = c.icon ? `<img src="${iconUrl(c.icon)}" alt="${c.icon}" style="height:2.5em;">` : '';
+                document.getElementById('current-cond').textContent = c.condition || '--';
+                document.getElementById('current-moon').textContent = moonToEmoji(c.moon_phase);
+                document.getElementById('current-moon-label').textContent = c.moon_phase || '';
+                document.getElementById('current-summary').textContent = c.daily_summary || '';
+
+                // Hourly
+                const hourlyDiv = document.getElementById('hourly');
+                hourlyDiv.innerHTML = '';
+                for (let i = 0; i < 5; i++) {
+                    const h = data.hourly['hour'+i];
+                    const el = document.createElement('div');
+                    el.className = 'hour';
+                    el.innerHTML = `
+                        <div class="icon">${h.icon ? `<img src="${iconUrl(h.icon)}" alt="${h.icon}" style="height:1.5em;">` : ''}</div>
+                        <div class="value">${h.temp !== null ? h.temp + '°' : '--'}</div>
+                        <div class="label">Temp</div>
+                        <div class="value">${h.precip !== null ? h.precip : '--'}</div>
+                        <div class="label">Precip</div>
+                        <div class="value">${h.precip_prob !== null ? (h.precip_prob*100).toFixed(0) + '%' : '--'}</div>
+                        <div class="label">Chance</div>
+                    `;
+                    hourlyDiv.appendChild(el);
+                }
+                // Daily
+                const dailyDiv = document.getElementById('daily');
+                dailyDiv.innerHTML = '';
+                for (let i = 0; i < 5; i++) {
+                    const d = data.daily['day'+i];
+                    const el = document.createElement('div');
+                    el.className = 'day';
+                    el.innerHTML = `
+                        <div class="icon">${d.icon ? `<img src="${iconUrl(d.icon)}" alt="${d.icon}" style="height:1.5em;">` : ''}</div>
+                        <div class="value">${d.temp_high !== null ? d.temp_high + '°' : '--'} / ${d.temp_low !== null ? d.temp_low + '°' : '--'}</div>
+                        <div class="label">High / Low</div>
+                        <div class="value">${d.precip !== null ? d.precip : '--'}</div>
+                        <div class="label">Precip</div>
+                        <div class="value">${d.precip_prob !== null ? (d.precip_prob*100).toFixed(0) + '%' : '--'}</div>
+                        <div class="label">Chance</div>
+                    `;
+                    dailyDiv.appendChild(el);
+                }
+            });
+        }
+        window.onload = updateWeatherUI;
+    </script>
+</head>
+<body>
+    <div class="container">
+        <h1>Weather Dashboard</h1>
+        <div class="current">
+            <div class="current-icon" id="current-icon"></div>
+            <div class="current-details">
+                <div><span id="current-temp">--</span> <span id="current-cond"></span></div>
+                <div><span class="moon" id="current-moon"></span> <span id="current-moon-label"></span></div>
+                <div class="summary" id="current-summary"></div>
+            </div>
+        </div>
+        <div class="section-title">Next 5 Hours</div>
+        <div class="hourly" id="hourly"></div>
+        <div class="section-title">Next 5 Days</div>
+        <div class="daily" id="daily"></div>
+    </div>
+</body>
+</html>
+''', ha_url=HA_URL)
+
 @app.route('/weather')
 def weather():
     with weather_cache_lock:
@@ -522,7 +633,7 @@ def weather():
         def c_to_f(match):
             c = float(match.group(1))
             f = round(c * 9/5 + 32)
-            return f"{f}F"
+            return f"{f}°F"
         if summary:
             # Replace all XXC with XXF
             summary = re.sub(r"(\-?\d+(?:\.\d+)?)C", c_to_f, summary)
