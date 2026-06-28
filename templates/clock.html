@@ -23,6 +23,7 @@
 			position: absolute;
 			opacity: 0;
 			transition: opacity 0.8s ease;
+			z-index: 2;
 		}
 
 		.hero {
@@ -70,8 +71,31 @@
 			margin-top: 0.3rem;
 			text-align: center;
 		}
+
+	.moon-icon {
+		height: 0.8em;
+		width: auto;
+		margin-left: 0.1em;
+		vertical-align: middle;
+		opacity: .9;
+	}
+
+	#rainCanvas {
+		position: fixed;
+		inset: 0;
+		pointer-events: none;
+		z-index: 1;
+		opacity: 0;
+		transition: opacity 1s ease;
+	}
+
     </style>
     <script>
+	
+	let canvas;
+	let ctx;
+	let drops = [];
+
         function updateTime() {
             const now = new Date();
             let hours = now.getHours();
@@ -81,42 +105,17 @@
             let display = `${hours.toString().padStart(2, '0')}:${minutes}`;
             document.getElementById('time').textContent = display;
         }
-        // Floating logic for the dashboard panel (clock plus weather)
-        function startRandomFloat() {
-            const dashboard = document.getElementById('dashboard');
-            dashboard.style.position = 'absolute';
-            function nextMove() {
-                const vw = window.innerWidth;
-                const vh = window.innerHeight;
-                const rect = dashboard.getBoundingClientRect();
-                const pad = 20;
-                const maxLeft = vw - rect.width - pad;
-                const maxTop = vh - rect.height - pad;
-                const minLeft = pad;
-                const minTop = pad;
-                // Clamp to valid range (in case window is smaller than dashboard)
-                const safeMaxLeft = Math.max(minLeft, maxLeft);
-                const safeMaxTop = Math.max(minTop, maxTop);
-                let newLeft, newTop, prevLeft, prevTop, dx, dy, distance, duration;
-                do {
-                    newLeft = Math.random() * (safeMaxLeft - minLeft) + minLeft;
-                    newTop = Math.random() * (safeMaxTop - minTop) + minTop;
-                    prevLeft = parseFloat(dashboard.style.left) || 0;
-                    prevTop = parseFloat(dashboard.style.top) || 0;
-                    dx = newLeft - prevLeft;
-                    dy = newTop - prevTop;
-                    distance = Math.sqrt(dx * dx + dy * dy);
-                } while (distance < 10); // avoid picking the same spot
-                const speed = 10; // px per second
-                duration = distance / speed;
-                dashboard.style.transition = `left ${duration}s cubic-bezier(0.4,0,0.2,1), top ${duration}s cubic-bezier(0.4,0,0.2,1), color 60s linear`;
-                dashboard.style.left = `${newLeft}px`;
-                dashboard.style.top = `${newTop}px`;
-                // Always schedule next move after duration (minimum 1s)
-                setTimeout(nextMove, Math.max(duration * 1000, 1000));
-            }
-            setTimeout(nextMove, 500);
-        }
+
+		function moonIcon(phase) {
+			const p = parseFloat(phase); // 0.0–1.0
+
+			// 0.00 -> 01
+			// 0.50 -> 15
+			// 1.00 -> 30
+			const n = Math.max(1, Math.min(30, Math.floor(p * 30) + 1));
+
+			return `/static/images/moonphase/${String(n).padStart(2, '0')}.webp`;
+		}
 
 		function placeDashboardRandomly() {
 			const panel = document.getElementById('dashboard');
@@ -143,9 +142,13 @@
 
 			setTimeout(() => {
 				placeDashboardRandomly();
-				refreshWeather();
+				updateWeather();
 				dashboard.style.opacity = '1';
 			}, 800);
+		}
+
+		function setRainOverlay(active) {
+			document.getElementById("rainCanvas").style.opacity = active ? "1" : "0";
 		}
 
         // Weather fetch and update
@@ -154,29 +157,92 @@
 			return `/static/images/weather/${icon}.svg?v=2`;
 		}
 
+function animateRain() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    ctx.strokeStyle = "rgba(200,220,255,.25)";
+    ctx.lineWidth = 1;
+
+    for (const d of drops) {
+        ctx.beginPath();
+        ctx.moveTo(d.x, d.y);
+        ctx.lineTo(d.x - 4, d.y + d.len);
+        ctx.stroke();
+
+        d.y += d.speed;
+        d.x -= d.speed * 0.2;
+
+        if (d.y > canvas.height) {
+            d.y = -20;
+            d.x = Math.random() * canvas.width;
+        }
+    }
+
+    requestAnimationFrame(animateRain);
+}
+
+function resizeCanvas() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+}
+
+function initRain() {
+    canvas = document.getElementById("rainCanvas");
+    ctx = canvas.getContext("2d");
+
+    resizeCanvas();
+    window.addEventListener("resize", resizeCanvas);
+
+    for (let i = 0; i < 150; i++) {
+        drops.push({
+            x: Math.random() * canvas.width,
+            y: Math.random() * canvas.height,
+            len: 10 + Math.random() * 20,
+            speed: 6 + Math.random() * 4
+        });
+    }
+
+    animateRain();
+}
+
 		function updateWeather() {
 			fetch('/weather')
 				.then(r => r.json())
 				.then(data => {
 					const c = data.current;
 
-					const icon = document.getElementById('weatherIcon');
+					const weathericon = document.getElementById('weatherIcon');
+					const moonicon = document.getElementById('moonIcon');
 					const temp = document.getElementById('weatherTemp');
 					const condition = document.getElementById('weatherCondition');
 					const weathersummary = document.getElementById('weatherSummary');
 
-					icon.src = iconUrl(c.icon);
-					icon.style.display = c.icon ? 'inline-block' : 'none';
+					weathericon.src = iconUrl(c.icon);
+					weathericon.style.display = c.icon ? 'inline-block' : 'none';
+
+					// Only show moon if it's night, relies on HA sun.sun entity
+					const isNight = c.sun_state === "below_horizon";
+					moonicon.src = moonIcon(c.moon_phase);
+					moonicon.style.display =
+						(c.moon_phase != null && isNight) ? "inline-block" : "none";
 
 					temp.textContent = c.temp !== null ? `${Math.round(c.temp)}°` : '--°';
 					condition.textContent = c.condition || '';
 					weathersummary.textContent = c.daily_summary || '';
+					
+					const isRaining =
+						c.condition?.toLowerCase().includes("rain") ||
+						c.icon?.toLowerCase().includes("rain");
+
+					setRainOverlay(isRaining);
+					// for testing // setRainOverlay(true);
 				})
 				.catch(() => {
 					document.getElementById('weatherTemp').textContent = '--°';
 					document.getElementById('weatherCondition').textContent = '';
 					document.getElementById('weatherIcon').style.display = 'none';
 					document.getElementById('weatherSummary').style.display = 'none';
+					document.getElementById('moonIcon').style.display = 'none';
 				});
 		}
 
@@ -184,6 +250,8 @@
 			window.onload = function () {
 				updateTime();
 				updateWeather();
+				initRain();
+
 
 			const dashboard = document.getElementById("dashboard");
 			dashboard.style.opacity = "0";
@@ -224,12 +292,14 @@
     </script>
 </head>
 <body>
+	<canvas id="rainCanvas"></canvas>
     <div class="dashboard" id="dashboard">
 		<div class="hero">
 			<div class="weather" id="weather">
 				<div class="weather-current">
 					<img id="weatherIcon" class="weather-icon" src="" alt="">
 					<span id="weatherTemp">--°</span>
+					<img id="moonIcon" class="moon-icon" src="" alt="">
 					<span id="weatherCondition" style="display:none;"></span>
 				</div>
 			</div>

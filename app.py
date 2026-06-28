@@ -226,13 +226,23 @@ def fetch_weather_data():
         moon_phase_data = resp_moon.json()
         moon_phase = moon_phase_data.get('state')
 
+    # Fetch sun state
+    sun_state = None
+    sun_state_url = f"{HA_URL}/api/states/sun.sun"
+    resp_sun = requests.get(sun_state_url, headers=headers)
+    if resp_sun.status_code == 200:
+        sun_state_data = resp_sun.json()
+        sun_state = sun_state_data.get('state')
+
+
     # Build new structured output
     current = {
         'condition': condition,
         'daily_summary': daily_summary,
         'icon': icon,
         'moon_phase': moon_phase,
-        'temp': temp
+        'temp': temp,
+        'sun_state': sun_state
     }
     hourly = {}
     for i in range(5):
@@ -509,7 +519,15 @@ def weather():
         moon_phase_data = resp_moon.json()
         moon_phase = moon_phase_data.get('state')
 
-    return jsonify({'temp': temp, 'condition': condition, 'hourly': hourly_out, 'daily': daily_out, 'temp_hourly': temp_hourly, 'daily_highs': daily_highs, 'daily_lows': daily_lows, 'daily_summary': daily_summary, 'precip_hourly': precip_hourly, 'precip_daily': precip_daily, 'precip_prob_hourly': precip_prob_hourly, 'precip_prob_daily': precip_prob_daily, 'icon': icon, 'icon_hourly': icon_hourly, 'icon_daily': icon_daily, 'moon_phase': moon_phase})
+    # Fetch sun state
+    sun_state = None
+    sun_state_url = f"{HA_URL}/api/states/sun.sun"
+    resp_sun = requests.get(sun_state_url, headers=headers)
+    if resp_sun.status_code == 200:
+        sun_state_data = resp_sun.json()
+        sun_state = sun_state_data.get('state')
+
+    return jsonify({'temp': temp, 'condition': condition, 'hourly': hourly_out, 'daily': daily_out, 'temp_hourly': temp_hourly, 'daily_highs': daily_highs, 'daily_lows': daily_lows, 'daily_summary': daily_summary, 'precip_hourly': precip_hourly, 'precip_daily': precip_daily, 'precip_prob_hourly': precip_prob_hourly, 'precip_prob_daily': precip_prob_daily, 'icon': icon, 'icon_hourly': icon_hourly, 'icon_daily': icon_daily, 'moon_phase': moon_phase, 'sun_state': sun_state})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8282, debug=True)
