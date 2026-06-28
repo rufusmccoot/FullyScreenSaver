@@ -1,4 +1,4 @@
-from flask import Flask, render_template_string, jsonify
+from flask import Flask, render_template, jsonify
 from datetime import datetime
 import os
 import requests
@@ -17,157 +17,9 @@ HA_TOKEN = SECRETS['HA_TOKEN']
 
 app = Flask(__name__)
 
-TEMPLATE = '''
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Current Time</title>
-    <style>
-        @font-face {
-            font-family: 'segment7';
-            src: url("/static/7segment.woff") format("woff");
-        }
-        html, body {
-            height: 100%;
-            margin: 0;
-            padding: 0;
-            background: #222;
-            color: #fff;
-            width: 100vw;
-            height: 100vh;
-            overflow: hidden;
-        }
-        .time {
-            position: absolute;
-            font-size: 15em;
-            user-select: none;
-            white-space: nowrap;
-            font-family: 'segment7', monospace;
-            letter-spacing: 0.04em;
-            width: 6ch;
-            text-align: center;
-        }
-    </style>
-    <script>
-        function updateTime() {
-            const now = new Date();
-            let hours = now.getHours();
-            let minutes = now.getMinutes().toString().padStart(2, '0');
-            hours = hours % 12;
-            hours = hours ? hours : 12; // the hour '0' should be '12'
-            let display = `${hours.toString().padStart(2, '0')}:${minutes}`;
-            document.getElementById('time').textContent = display;
-        }
-        // Floating logic for the clock only
-        function startRandomFloat() {
-            const clock = document.getElementById('time');
-            clock.style.position = 'absolute';
-            function nextMove() {
-                const vw = window.innerWidth;
-                const vh = window.innerHeight;
-                const rect = clock.getBoundingClientRect();
-                const pad = 20;
-                const maxLeft = vw - rect.width - pad;
-                const maxTop = vh - rect.height - pad;
-                const minLeft = pad;
-                const minTop = pad;
-                // Clamp to valid range (in case window is smaller than clock)
-                const safeMaxLeft = Math.max(minLeft, maxLeft);
-                const safeMaxTop = Math.max(minTop, maxTop);
-                let newLeft, newTop, prevLeft, prevTop, dx, dy, distance, duration;
-                do {
-                    newLeft = Math.random() * (safeMaxLeft - minLeft) + minLeft;
-                    newTop = Math.random() * (safeMaxTop - minTop) + minTop;
-                    prevLeft = parseFloat(clock.style.left) || 0;
-                    prevTop = parseFloat(clock.style.top) || 0;
-                    dx = newLeft - prevLeft;
-                    dy = newTop - prevTop;
-                    distance = Math.sqrt(dx * dx + dy * dy);
-                } while (distance < 10); // avoid picking the same spot
-                const speed = 10; // px per second
-                duration = distance / speed;
-                clock.style.transition = `left ${duration}s cubic-bezier(0.4,0,0.2,1), top ${duration}s cubic-bezier(0.4,0,0.2,1), color 60s linear`;
-                clock.style.left = `${newLeft}px`;
-                clock.style.top = `${newTop}px`;
-                // Always schedule next move after duration (minimum 1s)
-                setTimeout(nextMove, Math.max(duration * 1000, 1000));
-            }
-            setTimeout(nextMove, 500);
-        }
-
-        // Weather fetch and update
-        function updateWeather() {
-            fetch('/weather').then(r => r.json()).then(data => {
-                const weatherDiv = document.getElementById('weather');
-                weatherDiv.textContent = `${data.temp}°  ${data.condition}`;
-            }).catch(() => {
-                document.getElementById('weather').textContent = '--';
-            });
-        }
-        setInterval(updateWeather, 600000); // every 10 minutes
-
-        // On load, update weather and time
-        window.onload = function() {
-            updateTime();
-            const clock = document.getElementById('time');
-            clock.style.position = 'absolute';
-            setTimeout(() => {
-                const vw = window.innerWidth;
-                const vh = window.innerHeight;
-                const rect = clock.getBoundingClientRect();
-                clock.style.left = `${(vw - rect.width) / 2}px`;
-                clock.style.top = `${(vh - rect.height) / 2}px`;
-                startRandomFloat();
-                startColorTransition();
-            }, 50);
-        };
-
-
-        setInterval(updateTime, 1000);
-        setInterval(updateWeather, 600000);
-        // Color transition
-        function randomColor() {
-            // HSL: h=0-360, s=90-100, l=23-60
-            const h = Math.floor(Math.random() * 361); // 0-360
-            const s = 90 + Math.random() * 10;         // 90-100
-            const l = 40 + Math.random() * 35;         // 40-75
-            return `hsl(${h}, ${s}%, ${l}%)`;
-        }
-        function startColorTransition() {
-            const clock = document.getElementById('time');
-            let currentColor = window.getComputedStyle(clock).color;
-            function nextColor() {
-                const newColor = randomColor();
-
-                clock.style.color = newColor;
-                setTimeout(() => {
-                    // After transition, set up for next
-                    currentColor = newColor;
-                    nextColor();
-                }, 60000);
-            }
-            nextColor();
-        }
-
-
-
-
-
-
-    </script>
-</head>
-<body>
-
-    <div class="time" id="time">--:--</div>
-</body>
-</html>
-'''
-
 @app.route('/')
 def index():
-    return render_template_string(TEMPLATE)
+    return render_template('clock.html')
 
 import threading
 import time
@@ -407,8 +259,16 @@ def fetch_weather_data():
 
 def refresh_weather_cache():
     global weather_cache
-    with weather_cache_lock:
-        weather_cache = fetch_weather_data()
+    try:
+        data = fetch_weather_data()
+
+        with weather_cache_lock:
+            weather_cache = data
+
+        print("Weather cache refreshed.")
+
+    except Exception as e:
+        print(f"Weather refresh failed: {e}")
 
 def weather_cache_updater():
     while True:
@@ -417,125 +277,21 @@ def weather_cache_updater():
             refresh_weather_cache()
         time.sleep(20 * 60)  # 20 minutes
 
-# On Flask launch, refresh cache and start background updater
-refresh_weather_cache()
+# On Flask launch, refresh weather cache
+# Try every N seconds in case hass or adguard dns isn't up yet after reboot
+# refresh_weather_cache() defines its own update time, 20 min probably
+while weather_cache is None:
+    refresh_weather_cache()
+
+    if weather_cache is None:
+        print("Waiting 60 seconds before retry...")
+        time.sleep(60)
+
 threading.Thread(target=weather_cache_updater, daemon=True).start()
 
 @app.route('/weather_ui')
 def weather_ui():
-    return render_template_string('''
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Weather Dashboard</title>
-    <style>
-        body { font-family: 'Segoe UI', Arial, sans-serif; background: #181c23; color: #fff; margin: 0; padding: 0; }
-        .container { max-width: 900px; margin: 30px auto; background: #232733; border-radius: 12px; box-shadow: 0 2px 16px #000a; padding: 32px; }
-        h1 { margin-top: 0; font-size: 2.3em; letter-spacing: 0.04em; }
-        .current { display: flex; align-items: center; gap: 32px; margin-bottom: 32px; }
-        .current-icon { font-size: 4em; }
-        .current-details { font-size: 1.3em; }
-        .section-title { margin: 20px 0 8px 0; font-size: 1.2em; color: #aee; letter-spacing: 0.04em; }
-        .hourly, .daily { display: flex; gap: 18px; }
-        .hour, .day { background: #23293a; border-radius: 8px; padding: 12px 10px; min-width: 90px; text-align: center; box-shadow: 0 1px 4px #0005; }
-        .hour .icon, .day .icon { font-size: 2em; }
-        .label { font-size: 0.9em; color: #a9b; margin-top: 2px; }
-        .value { font-size: 1.1em; margin: 2px 0; }
-        .moon { font-size: 1.6em; margin-left: 10px; }
-        .summary { margin-top: 10px; color: #eee; font-size: 1.1em; }
-        @media (max-width: 900px) { .container { padding: 10px; } .hourly, .daily { flex-wrap: wrap; } }
-    </style>
-    <script>
-        const ha_url = "{{ ha_url }}";
-        function iconUrl(icon) {
-            if (!icon) return '';
-            return `/static/images/weather/${icon}.svg`;
-        }
-        function moonPhaseImgUrl(phase) {
-            // phase: 0.00 - 1.00 (inclusive)
-            let idx = Math.round(phase * 29 + 1);
-            if (idx < 1) idx = 1;
-            if (idx > 30) idx = 30;
-            return `/static/images/moonphase/${idx.toString().padStart(2, '0')}.webp`;
-        }
-        function updateWeatherUI() {
-            fetch('/weather').then(r => r.json()).then(data => {
-                const c = data.current;
-                document.getElementById('current-temp').textContent = c.temp !== null ? c.temp + '°' : '--';
-                document.getElementById('current-icon').innerHTML = c.icon ? `<img src="${iconUrl(c.icon)}" alt="${c.icon}" style="height:2.5em;">` : '';
-                document.getElementById('current-cond').textContent = c.condition || '--';
-                // Show moon image if moon_phase is a number, else fallback to emoji
-                let moonPhaseVal = parseFloat(c.moon_phase);
-                if (!isNaN(moonPhaseVal)) {
-                    document.getElementById('current-moon').innerHTML = `<img src="${moonPhaseImgUrl(moonPhaseVal)}" alt="moon phase" style="height:2em;">`;
-                } else {
-                    document.getElementById('current-moon').textContent = c.moon_phase || '';
-                }
-                document.getElementById('current-moon-label').textContent = c.moon_phase || '';
-                document.getElementById('current-summary').textContent = c.daily_summary || '';
-
-                // Hourly
-                const hourlyDiv = document.getElementById('hourly');
-                hourlyDiv.innerHTML = '';
-                for (let i = 0; i < 5; i++) {
-                    const h = data.hourly['hour'+i];
-                    const el = document.createElement('div');
-                    el.className = 'hour';
-                    el.innerHTML = `
-                        <div class="icon">${h.icon ? `<img src="${iconUrl(h.icon)}" alt="${h.icon}" style="height:1.5em;">` : ''}</div>
-                        <div class="value">${h.temp !== null ? h.temp + '°' : '--'}</div>
-                        <div class="label">Temp</div>
-                        <div class="value">${h.precip !== null ? h.precip : '--'}</div>
-                        <div class="label">Precip</div>
-                        <div class="value">${h.precip_prob !== null ? (h.precip_prob*100).toFixed(0) + '%' : '--'}</div>
-                        <div class="label">Chance</div>
-                    `;
-                    hourlyDiv.appendChild(el);
-                }
-                // Daily
-                const dailyDiv = document.getElementById('daily');
-                dailyDiv.innerHTML = '';
-                for (let i = 0; i < 5; i++) {
-                    const d = data.daily['day'+i];
-                    const el = document.createElement('div');
-                    el.className = 'day';
-                    el.innerHTML = `
-                        <div class="icon">${d.icon ? `<img src="${iconUrl(d.icon)}" alt="${d.icon}" style="height:1.5em;">` : ''}</div>
-                        <div class="value">${d.temp_high !== null ? d.temp_high + '°' : '--'} / ${d.temp_low !== null ? d.temp_low + '°' : '--'}</div>
-                        <div class="label">High / Low</div>
-                        <div class="value">${d.precip !== null ? d.precip : '--'}</div>
-                        <div class="label">Precip</div>
-                        <div class="value">${d.precip_prob !== null ? (d.precip_prob*100).toFixed(0) + '%' : '--'}</div>
-                        <div class="label">Chance</div>
-                    `;
-                    dailyDiv.appendChild(el);
-                }
-            });
-        }
-        window.onload = updateWeatherUI;
-    </script>
-</head>
-<body>
-    <div class="container">
-        <h1>Weather Dashboard</h1>
-        <div class="current">
-            <div class="current-icon" id="current-icon"></div>
-            <div class="current-details">
-                <div><span id="current-temp">--</span> <span id="current-cond"></span></div>
-                <div><span class="moon" id="current-moon"></span> <span id="current-moon-label"></span></div>
-                <div class="summary" id="current-summary"></div>
-            </div>
-        </div>
-        <div class="section-title">Next 5 Hours</div>
-        <div class="hourly" id="hourly"></div>
-        <div class="section-title">Next 5 Days</div>
-        <div class="daily" id="daily"></div>
-    </div>
-</body>
-</html>
-''', ha_url=HA_URL)
+    return render_template('weather_ui.html', ha_url=HA_URL)
 
 @app.route('/weather')
 def weather():
